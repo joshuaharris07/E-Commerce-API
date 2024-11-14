@@ -266,7 +266,35 @@ def add_order():
     except ValidationError as err:
         return jsonify(err.messages), 400
 
+
+@app.route('/orders/<int:id>', methods = ['PUT'])
+def update_order(id):
+    order = Order.query.get_or_404(id)
+    try:
+        order_data = request.json
+        product_ids = order_data['product_ids']
+        products = Product.query.filter(Product.id.in_(product_ids)).all()
+        if not products:
+            return jsonify({"error": "No products found with those IDs"})
+        order.date = order_data['date']
+        order.customer_id = order_data['customer_id']
+        order.products = products
     
+        db.session.commit()
+        return jsonify({"message": "Order updated successfully"}), 200
+
+    except ValidationError as err:
+        return jsonify(err.messages), 400
+
+
+@app.route('/orders/<int:id>', methods = ['DELETE'])
+def delete_order(id):
+    order = Order.query.get_or_404(id)
+    db.session.delete(order)
+    db.session.commit()
+    return jsonify({"message": "Order removed successfully"}), 200
+   
+   
 @app.route('/products', methods = ['GET']) 
 def get_products():
     products = Product.query.all()
