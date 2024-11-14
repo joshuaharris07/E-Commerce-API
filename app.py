@@ -15,7 +15,7 @@ ma = Marshmallow(app)
 
 class CustomerSchema(ma.Schema):
     name = fields.String(required=True, validate=validate.Length(min=1))
-    email = fields.String(required=True, validate=validate.Email()) # TODO make sure this validation doesn't need an argument passed in. Might need an *?
+    email = fields.String(required=True)# validate=validate.Email()) # TODO make sure this validation doesn't need an argument passed in. Might need an *?
     phone = fields.String(required=True, validate=validate.Length(min=6)) # Set min as 6 in case area code is omitted
 
     class Meta:
@@ -35,6 +35,14 @@ class ProductSchema(ma.Schema):
     class Meta:
         fields = ('name', 'price', 'id')
 
+class CustomerAccountSchema(ma.Schema):
+    username = fields.String(required=True, validate=validate.Length(min=1))
+    password = fields.String(required=True, validate=validate.Length(min=1))
+    customer_id = fields.Integer(required=True)
+
+    class Meta:
+        fields = ('username', 'password', 'customer_id', 'id')
+
 customer_schema = CustomerSchema()
 customers_schema = CustomerSchema(many=True)
 
@@ -44,13 +52,18 @@ orders_schema = OrderSchema(many=True)
 product_schema = ProductSchema()
 products_schema = ProductSchema(many=True)
 
+customeraccount_schema = CustomerAccountSchema()
+customeraccounts_schema = CustomerAccountSchema(many=True)
+
+
 class Customer(db.Model):
     __tablename__ = 'Customers'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
     email = db.Column(db.String(320), unique=True, nullable=False)
     phone = db.Column(db.String(15), nullable=False)
-    orders = db.relationship('Order', backref='customer')
+    orders = db.relationship('Order', backref='customer', uselist=False)
+    # customer_account = db.relationship('CustomerAccount', backref='customers', uselist=False)
 
 class Order(db.Model):
     __tablename__ = 'Orders'
@@ -64,8 +77,8 @@ class CustomerAccount(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(255), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
-    customer_id = db.Column(db.Integer, db.ForeignKey('Customers.id'))
-    customer = db.relationship('Customer', backref='customer_account', uselist=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False)
+    # customer = db.relationship('Customer', backref='customer_account', uselist=False)
 
 # Many-to-Many - Needs a connecting table
 order_product = db.Table('Order_Product',
@@ -92,7 +105,15 @@ def get_customers():
     return customers_schema.jsonify(customers)
 
 
-@app.route('/customers', methods = ['POST'])
+@app.route('/customers/<int:id>', methods = ['GET'])
+def customer_by_id(id):
+    customer = Customer.query.filter(Customer.id==id).first()
+    if not customer:
+        return jsonify({"error": "No customer found"})
+    return customer_schema.jsonify(customer)
+
+
+@app.route('/customers', methods = ['POST']) 
 def add_customer():
     try:
         customer_data = customer_schema.load(request.json)
@@ -105,7 +126,7 @@ def add_customer():
     return jsonify({"message": "New Customer added successfully"}), 201
 
 
-@app.route('/customers/<int:id>', methods = ['PUT'])
+@app.route('/customers/<int:id>', methods = ['PUT']) 
 def update_customer(id):
     customer = Customer.query.get_or_404(id)
     try:
@@ -128,12 +149,81 @@ def delete_customer(id):
     db.session.commit()
     return jsonify({"message": "Customer removed successfully"}), 200
 
-@app.route('/orders', methods = ['GET'])
+
+@app.route('/customeraccounts', methods = ['POST']) #TODO test for funcionality
+def create_customeraccount():
+    try:
+        customeraccount_data = customeraccount_schema.load(request.json)
+    except ValidationError as err:
+        return jsonify(err.messages), 400
+
+    new_customeraccount = CustomerAccount(
+        username=customeraccount_data['username'], 
+        password=customeraccount_data['password'], 
+        customer_id=customeraccount_data['customer_id']
+        )
+    
+    try:
+        db.session.add(new_customeraccount)
+        db.session.commit()
+        return jsonify({"message": "New Customer Account added successfully"}), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "An error occurred while creating the account"}), 500
+    
+
+@app.route('/customeraccounts/<int:id>', methods = ['GET']) #TODO set up to pull customer account details and the associated customer details. Test 
+def read_customeraccount(id):
+    customeraccount = CustomerAccount.query.filter(CustomerAccount.id==id).first()
+    # if not customeraccount:
+    #     return jsonify({"error": "No customer account found"})
+    # customer = customeraccount.customer
+    # response_data = {
+    #     "customer_account": {
+    #         "id": customeraccount.id,
+    #         "username": customeraccount.username,
+    #     },
+    #     "customer": {
+    #         "id": customer.id,
+    #         "name": customer.name,
+    #         "email": customer.email,
+    #         "phone": customer.phone,
+    #     }
+    # }
+    # # customer = Customer.query.filter(Customer.)
+    # return jsonify(response_data)
+
+@app.route('/customeraccounts/<int:id>', methods = ['PUT'])
+def update_customeraccount(id):
+    customeraccount = CustomerAccount.query.get_or_404(id)
+    try:
+        customeraccount_data = customeraccount_schema.load(request.json)
+    except ValidationError as err:
+        return jsonify(err.messages), 400
+
+    customeraccount.username = customeraccount_data['username']
+    customeraccount.password = customeraccount_data['password']
+    customeraccount.customer_id = customeraccount_data['customer_id']
+    
+    db.session.commit()
+    return jsonify({"message": "Customer Account details updated successfully"}), 200
+
+@app.route('/customeraccounts/<int:id>', methods = ['DELETE'])
+def delete_customeraccount(id):
+    customeraccount = CustomerAccount.query.get_or_404(id)
+    db.session.delete(customeraccount)
+    db.session.commit()
+    return jsonify({"message": "Customer Account removed successfully"}), 200
+
+
+@app.route('/orders', methods = ['GET']) # TODO verify this function works.
 def get_orders():
     orders = Order.query.all()
     return orders_schema.jsonify(orders)
 
-@app.route('/orders', methods = ['POST'])
+
+@app.route('/orders', methods = ['POST']) # TODO verify this function works.
 def add_order():
     try:
         order_data = order_schema.load(request.json)
@@ -145,44 +235,30 @@ def add_order():
     db.session.commit()
     return jsonify({"message": "New order added successfully"}), 201
 
-@app.route('/products', methods = ['GET'])
+
+@app.route('/products', methods = ['GET']) 
 def get_products():
     products = Product.query.all()
     return products_schema.jsonify(products)
 
-@app.route('/products/<name>', methods = ['GET'])
+
+@app.route('/products/<name>', methods = ['GET']) 
 def query_product_by_name(name):
     products = Product.query.filter(Product.name.ilike(f"%{name}%")).all()
     if not products:
         return jsonify({"error": "No products found matching that search"})
     return products_schema.jsonify(products)
 
-# @app.route('/products/by-name', methods = ['GET']) # URL in Postman = /products/by-name?name=_____ insert name there.
-# def query_product_by_name(name):
-#     name = request.args.get('name')
-#     product = Product.query.filter(Product.name==name).first()
-#     if product:
-#         return product_schema.jsonify(product)
-#     else:
-#         return jsonify({"message": "Product not found"}), 404
 
 @app.route('/customers/<email>', methods = ['GET']) # Will search emails ilike is similar to the emails in the list.
-def query_customer_by_email(email):
+def query_customer_by_email(email):                 # TODO verify this function works. Maybe get rid of it, it isn't asked for?
     customers = Customer.query.filter(Customer.email.ilike(f"%{email}%")).all()
     if not customers:
         return jsonify({"error": "No customers found matching that email"})
     return customers_schema.jsonify(customers)
 
-# @app.route('/customers/by-email', methods=["GET"]) # URL in Postman = /customers/by-email?email=______ insert email there.
-# def query_customer_by_email():
-#     email = request.args.get('email')
-#     customer = Customer.query.filter_by(email=email).first()
-#     if customer:
-#         return customer_schema.jsonify(customer)
-#     else:
-#         return jsonify({"message": "Customer not found"}), 404
 
-@app.route('/products', methods = ['POST'])
+@app.route('/products', methods = ['POST']) 
 def add_product():
     try:
         product_data = product_schema.load(request.json)
@@ -193,6 +269,29 @@ def add_product():
     db.session.add(new_product)
     db.session.commit()
     return jsonify({"message": "New product added successfully"}), 201
+
+
+@app.route('/products/<int:id>', methods = ['PUT'])
+def update_product(id):
+    product = Product.query.get_or_404(id)
+    try:
+        product_data = product_schema.load(request.json)
+    except ValidationError as err:
+        return jsonify(err.messages), 400
+
+    product.name = product_data['name']
+    product.price = product_data['price']
+    
+    db.session.commit()
+    return jsonify({"message": "Product updated successfully"}), 200
+
+@app.route('/products/<int:id>', methods = ['DELETE'])
+def delete_product(id):
+    product = Product.query.get_or_404(id)
+    db.session.delete(product)
+    db.session.commit()
+    return jsonify({"message": "Product removed successfully"}), 200
+
 
 with app.app_context():
     db.create_all()
