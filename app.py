@@ -15,18 +15,12 @@ ma = Marshmallow(app)
 
 class CustomerSchema(ma.Schema):
     name = fields.String(required=True, validate=validate.Length(min=1))
-    email = fields.String(required=True)# validate=validate.Email()) # TODO make sure this validation doesn't need an argument passed in. Might need an *?
+    email = fields.String(required=True, validate=validate.Email())
     phone = fields.String(required=True, validate=validate.Length(min=6)) # Set min as 6 in case area code is omitted
 
     class Meta:
         fields = ('name', 'email', 'phone', 'id')
 
-class OrderSchema(ma.Schema):
-    date = fields.Date(required=True) #validate=validate.Regexp(regex stuff))
-    customer_id = fields.String(required=True, validate=validate.Length(min=0))
-
-    class Meta:
-        fields = ('date', 'customer_id', 'id')
 
 class ProductSchema(ma.Schema):
     name = fields.String(required=True, validate=validate.Length(min=1))
@@ -35,6 +29,27 @@ class ProductSchema(ma.Schema):
     class Meta:
         fields = ('name', 'price', 'id')
 
+
+class OrderSchema(ma.Schema):
+    date = fields.Date(required=True) #validate=validate.Regexp(regex stuff))
+    customer_id = fields.String(required=True, validate=validate.Length(min=0))
+    products = fields.Nested(ProductSchema, many=True)
+
+    class Meta:
+        fields = ('date', 'customer_id', 'id', 'products')
+
+
+class CustomerOrderSchema(ma.Schema): 
+    id = fields.Int() 
+    name = fields.Str(required=True) 
+    email = fields.Str(required=True) 
+    phone = fields.Str(required=True) 
+    orders = fields.Nested(OrderSchema, many=True) 
+
+    class Meta: 
+        fields = ('id', 'name', 'email', 'phone', 'orders')
+
+
 class CustomerAccountSchema(ma.Schema):
     username = fields.String(required=True, validate=validate.Length(min=1))
     password = fields.String(required=True, validate=validate.Length(min=1))
@@ -42,6 +57,7 @@ class CustomerAccountSchema(ma.Schema):
 
     class Meta:
         fields = ('username', 'password', 'customer_id', 'id')
+
 
 customer_schema = CustomerSchema()
 customers_schema = CustomerSchema(many=True)
@@ -55,6 +71,13 @@ products_schema = ProductSchema(many=True)
 customeraccount_schema = CustomerAccountSchema()
 customeraccounts_schema = CustomerAccountSchema(many=True)
 
+customerorder_schema = CustomerOrderSchema()
+customerorders_schema = CustomerOrderSchema(many=True)
+
+order_product = db.Table('Order_Product',
+        db.Column('order_id', db.Integer, db.ForeignKey('Orders.id'), primary_key=True),
+        db.Column('product_id', db.Integer, db.ForeignKey('Products.id'), primary_key=True)
+)
 
 class Customer(db.Model):
     __tablename__ = 'Customers'
@@ -62,37 +85,28 @@ class Customer(db.Model):
     name = db.Column(db.String(255), nullable=False)
     email = db.Column(db.String(320), unique=True, nullable=False)
     phone = db.Column(db.String(15), nullable=False)
-    orders = db.relationship('Order', backref='customer', uselist=False)
-    # customer_account = db.relationship('CustomerAccount', backref='customers', uselist=False)
+    orders = db.relationship('Order', backref='customer')
 
 class Order(db.Model):
     __tablename__ = 'Orders'
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('Customers.id'))
+    products = db.relationship('Product', secondary=order_product, backref='orders')
 
-# One-to-One
 class CustomerAccount(db.Model):
     __tablename__ = 'Customer_Accounts'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(255), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False)
-    # customer = db.relationship('Customer', backref='customer_account', uselist=False)
-
-# Many-to-Many - Needs a connecting table
-order_product = db.Table('Order_Product',
-        db.Column('order_id', db.Integer, db.ForeignKey('Orders.id'), primary_key=True),
-        db.Column('product_id', db.Integer, db.ForeignKey('Products.id'), primary_key=True)
-)
+    customer_id = db.Column(db.Integer, db.ForeignKey('Customers.id'), nullable=False)
+    customer = db.relationship('Customer', backref='customer_account', uselist=False)
 
 class Product(db.Model):
     __tablename__ = 'Products'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
     price = db.Column(db.Float, nullable=False)
-    orders = db.relationship('Order', secondary=order_product, backref=db.backref('products')) 
-    # secondary tells SQLAlchemy to use the order_product table for the association table
 
 @app.route('/')
 def home():
@@ -111,6 +125,14 @@ def customer_by_id(id):
     if not customer:
         return jsonify({"error": "No customer found"})
     return customer_schema.jsonify(customer)
+
+
+@app.route('/customers/<int:id>/orders', methods = ['GET'])
+def customer_orders_by_id(id):
+    customerorders = Customer.query.filter(Customer.id==id).all()
+    if not customerorders:
+        return jsonify({"error": "No orders found with this customer"})
+    return customerorders_schema.jsonify(customerorders)
 
 
 @app.route('/customers', methods = ['POST']) 
@@ -173,26 +195,27 @@ def create_customeraccount():
         return jsonify({"error": "An error occurred while creating the account"}), 500
     
 
-@app.route('/customeraccounts/<int:id>', methods = ['GET']) #TODO set up to pull customer account details and the associated customer details. Test 
+@app.route('/customeraccounts/<int:id>', methods = ['GET'])
 def read_customeraccount(id):
     customeraccount = CustomerAccount.query.filter(CustomerAccount.id==id).first()
-    # if not customeraccount:
-    #     return jsonify({"error": "No customer account found"})
-    # customer = customeraccount.customer
-    # response_data = {
-    #     "customer_account": {
-    #         "id": customeraccount.id,
-    #         "username": customeraccount.username,
-    #     },
-    #     "customer": {
-    #         "id": customer.id,
-    #         "name": customer.name,
-    #         "email": customer.email,
-    #         "phone": customer.phone,
-    #     }
-    # }
-    # # customer = Customer.query.filter(Customer.)
-    # return jsonify(response_data)
+    if not customeraccount:
+        return jsonify({"error": "No customer account found"})
+    customer = customeraccount.customer
+    print(customer)
+    response_data = {
+        "customer_account": {
+            "id": customeraccount.id,
+            "username": customeraccount.username,
+        },
+        "customer": {
+            "id": customer.id,
+            "name": customer.name,
+            "email": customer.email,
+            "phone": customer.phone,
+        }
+    }
+    return jsonify(response_data)
+
 
 @app.route('/customeraccounts/<int:id>', methods = ['PUT'])
 def update_customeraccount(id):
@@ -209,6 +232,7 @@ def update_customeraccount(id):
     db.session.commit()
     return jsonify({"message": "Customer Account details updated successfully"}), 200
 
+
 @app.route('/customeraccounts/<int:id>', methods = ['DELETE'])
 def delete_customeraccount(id):
     customeraccount = CustomerAccount.query.get_or_404(id)
@@ -217,25 +241,32 @@ def delete_customeraccount(id):
     return jsonify({"message": "Customer Account removed successfully"}), 200
 
 
-@app.route('/orders', methods = ['GET']) # TODO verify this function works.
+@app.route('/orders', methods = ['GET']) 
 def get_orders():
     orders = Order.query.all()
     return orders_schema.jsonify(orders)
 
 
-@app.route('/orders', methods = ['POST']) # TODO verify this function works.
+@app.route('/orders', methods = ['POST']) 
 def add_order():
+    order_data = request.json
     try:
-        order_data = order_schema.load(request.json)
+        customer = Customer.query.get_or_404(order_data['customer_id'])
+        product_ids = order_data['product_ids']
+        products = Product.query.filter(Product.id.in_(product_ids)).all()
+
+        if not products:
+            return jsonify({"error": "No products found with those IDs"})
+
+        new_order = Order(date=order_data['date'], customer_id=customer.id, products=products)
+        db.session.add(new_order)
+        db.session.commit()
+        return jsonify({"message": "New order added successfully"}), 201
+
     except ValidationError as err:
         return jsonify(err.messages), 400
 
-    new_order = Order(date=order_data['date'], customer_id=order_data['customer_id'])
-    db.session.add(new_order)
-    db.session.commit()
-    return jsonify({"message": "New order added successfully"}), 201
-
-
+    
 @app.route('/products', methods = ['GET']) 
 def get_products():
     products = Product.query.all()
@@ -248,14 +279,6 @@ def query_product_by_name(name):
     if not products:
         return jsonify({"error": "No products found matching that search"})
     return products_schema.jsonify(products)
-
-
-@app.route('/customers/<email>', methods = ['GET']) # Will search emails ilike is similar to the emails in the list.
-def query_customer_by_email(email):                 # TODO verify this function works. Maybe get rid of it, it isn't asked for?
-    customers = Customer.query.filter(Customer.email.ilike(f"%{email}%")).all()
-    if not customers:
-        return jsonify({"error": "No customers found matching that email"})
-    return customers_schema.jsonify(customers)
 
 
 @app.route('/products', methods = ['POST']) 
