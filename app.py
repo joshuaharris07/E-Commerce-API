@@ -124,7 +124,7 @@ def get_customers():
 @app.route('/customers/<int:id>', methods = ['GET'])
 def get_customer(id):
     customer = Customer.query.get_or_404(id)
-    return customers_schema.jsonify(customer)
+    return customer_schema.jsonify(customer)
 
 
 @app.route('/customers/<int:id>', methods = ['GET'])
@@ -255,7 +255,7 @@ def get_orders():
     return orders_schema.jsonify(orders)
 
 
-@app.route('/orders', methods = ['POST']) 
+@app.route('/place-order', methods = ['POST']) 
 def add_order():
     order_data = request.json
     try:
