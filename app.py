@@ -7,11 +7,13 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 from marshmallow import fields, ValidationError, validate
 from password import my_password
+from flask_cors import CORS
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = f'mysql+mysqlconnector://root:{my_password}@localhost/e_commerce_db'
 db = SQLAlchemy(app)
 ma = Marshmallow(app)
+CORS(app)
 
 class CustomerSchema(ma.Schema):
     name = fields.String(required=True, validate=validate.Length(min=1))
@@ -120,6 +122,12 @@ def get_customers():
 
 
 @app.route('/customers/<int:id>', methods = ['GET'])
+def get_customer(id):
+    customer = Customer.query.get_or_404(id)
+    return customers_schema.jsonify(customer)
+
+
+@app.route('/customers/<int:id>', methods = ['GET'])
 def customer_by_id(id):
     customer = Customer.query.filter(Customer.id==id).first()
     if not customer:
@@ -135,7 +143,7 @@ def customer_orders_by_id(id):
     return customerorders_schema.jsonify(customerorders)
 
 
-@app.route('/customers', methods = ['POST']) 
+@app.route('/add-customer', methods = ['POST']) 
 def add_customer():
     try:
         customer_data = customer_schema.load(request.json)
@@ -148,7 +156,7 @@ def add_customer():
     return jsonify({"message": "New Customer added successfully"}), 201
 
 
-@app.route('/customers/<int:id>', methods = ['PUT']) 
+@app.route('/edit-customer/<int:id>', methods = ['PUT']) 
 def update_customer(id):
     customer = Customer.query.get_or_404(id)
     try:
@@ -301,6 +309,12 @@ def get_products():
     return products_schema.jsonify(products)
 
 
+@app.route('/products/<int:id>', methods=['GET'])
+def get_product(id):
+    product = Product.query.get_or_404(id)
+    return product_schema.jsonify(product)
+
+
 @app.route('/products/<name>', methods = ['GET']) 
 def query_product_by_name(name):
     products = Product.query.filter(Product.name.ilike(f"%{name}%")).all()
@@ -309,7 +323,7 @@ def query_product_by_name(name):
     return products_schema.jsonify(products)
 
 
-@app.route('/products', methods = ['POST']) 
+@app.route('/add-product', methods = ['POST']) 
 def add_product():
     try:
         product_data = product_schema.load(request.json)
@@ -322,7 +336,7 @@ def add_product():
     return jsonify({"message": "New product added successfully"}), 201
 
 
-@app.route('/products/<int:id>', methods = ['PUT'])
+@app.route('/edit-product/<int:id>', methods = ['PUT'])
 def update_product(id):
     product = Product.query.get_or_404(id)
     try:
